@@ -24,9 +24,14 @@ function Delete-NAVApplicationObject2 {
     
     process{
         $ServerInstanceObject = Get-NAVServerInstanceDetails -ServerInstance $ServerInstance
+        
+        $DatabaseServer =  $ServerInstanceObject.DatabaseServer
+        if (!([string]::IsNullOrEmpty($ServerInstanceObject.DatabaseInstance))){
+            $DatabaseServer += "\$($ServerInstanceObject.DatabaseInstance)"
+        }
 
         Delete-NAVApplicationObject `
-            -DatabaseName $ServerInstanceObject.DatabaseName `            -DatabaseServer $ServerInstanceObject.DatabaseServer `            -LogPath $LogPath `            -SynchronizeSchemaChanges $SynchronizeSchemaChanges `            -NavServerInstance $ServerInstanceObject.ServerInstance `            -NavServerName ([net.dns]::GetHostName()) `            -NavServerManagementPort $ServerInstanceObject.ManagementServicesPort `            -Filter $Filter `
+            -DatabaseName $ServerInstanceObject.DatabaseName `            -DatabaseServer $DatabaseServer `            -LogPath $LogPath `            -SynchronizeSchemaChanges $SynchronizeSchemaChanges `            -NavServerInstance $ServerInstanceObject.ServerInstance `            -NavServerName ([net.dns]::GetHostName()) `            -NavServerManagementPort $ServerInstanceObject.ManagementServicesPort `            -Filter $Filter `
             -Confirm:$Confirm
 
     }

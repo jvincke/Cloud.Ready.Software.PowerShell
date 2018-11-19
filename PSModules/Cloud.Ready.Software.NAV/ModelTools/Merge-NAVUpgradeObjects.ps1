@@ -10,7 +10,11 @@
         [Switch] $CreateDeltas,
         [String[]] $VersionListPrefixes,
         [switch] $DoNotOpenMergeResultFolder,
-        [String[]] $AvoidConflictsForLanguages
+        [String[]] $AvoidConflictsForLanguages,
+        [switch] $UpdateDateTime,
+        [Switch]$SwitchOriginalDate,
+        [Switch]$SwitchModifiedDate,
+        [Switch]$SwitchTargetDate
         
     )
 
@@ -33,7 +37,8 @@
         $TargetObjects = Remove-NAVUpgradeObjectLanguage -Source $TargetObjects -WorkingFolder $WorkingFolder -Languages $AvoidConflictsForLanguages
     }
 
-    #Create Delta's
+    <# -- has become obsolute.  In the DBUpgrade, everything gets deleted anyway - no need to know deleted objects
+    #Create Delta's 
     if($CreateDeltas){
         $Deltafolder1 = join-path $MergeResultFolder 'Deltas_ORIGINAL_MODIFIED'
         $Deltafolder2 = join-path $MergeResultFolder 'Deltas_ORIGINAL_TARGET'
@@ -56,6 +61,7 @@
             -Force `
             -PassThru       
     }
+    #>
 
     #Merge objects
     Write-Host "Merge to $MergeResultFolder" -ForegroundColor Green
@@ -74,7 +80,7 @@
     Write-Host 'Update Versionlist and DateTime' -ForegroundColor Green
     $Mergeresult |
         Where-Object {$_.MergeResult –eq 'Merged' -or $_.MergeResult –eq 'Conflict'}  |  
-            Merge-NAVApplicationObjectProperty -UpdateDateTime $true -UpdateVersionList $true -VersionListPrefixes $VersionListPrefixes
+            Merge-NAVApplicationObjectProperty -UpdateDateTime $UpdateDateTime -UpdateVersionList $true -VersionListPrefixes $VersionListPrefixes -SwitchOriginalDate:$SwitchOriginalDate -SwitchModifiedDate:$SwitchModifiedDate -SwitchTargetDate:$SwitchTargetDate
     
     $null = $mergeresult | Export-Clixml -Path (Join-Path $WorkingFolder 'MergeResult.xml')
     $MergeResultXML = get-item (Join-Path $WorkingFolder 'MergeResult.xml')
@@ -83,7 +89,8 @@
         Start-Process $MergeResultFolder
     }
         
-    $MergeEndResult = @{MergeResult=$Mergeresult;Mergeresultfolder=$MergeResultFolder;DeltaOriginalVersusModified=$DeltaOriginalModified;DeltaOriginalVersusTarget=$DeltaOriginalTarget;MergeResultXML=$MergeResultXML}
+    #$MergeEndResult = @{MergeResult=$Mergeresult;Mergeresultfolder=$MergeResultFolder;DeltaOriginalVersusModified=$DeltaOriginalModified;DeltaOriginalVersusTarget=$DeltaOriginalTarget;MergeResultXML=$MergeResultXML}
+    $MergeEndResult = @{MergeResult=$Mergeresult;Mergeresultfolder=$MergeResultFolder;MergeResultXML=$MergeResultXML}
     $MergeEndResult
 }
     

@@ -8,7 +8,10 @@
         [String]$BackupFile,
         [switch]$EnablePortSharing,
         [Switch]$StartWindowsClient,
-        [String]$LicenseFile
+        [String]$LicenseFile,
+        [int]$ManagementServicesPort=7045,
+        [int]$ClientServicesPort=7046,
+        [Switch]$CreateWebServerInstance
     )
 
     if ([String]::IsNullOrEmpty($Databasename)){
@@ -22,15 +25,15 @@
     }
 
     write-Host -ForegroundColor Green "Restoring Backup $BackupFile to $Databasename"
-    Restore-SQLBackupFile -BackupFile $BackupFile -DatabaseServer $DatabaseServer -DatabaseInstance $DatabaseInstance -DatabaseName $Databasename -ErrorAction Stop
+    Restore-SQLBackupFile -BackupFile $BackupFile -DatabaseServer $DatabaseServer -DatabaseInstance $DatabaseInstance -DatabaseName $Databasename -ErrorAction Stop -TimeOut 0
 
     write-Host -ForegroundColor Green "Creating ServerInstance $ServerInstance"
     $Object = New-NAVServerInstance `
             -ServerInstance $ServerInstance `
             -DatabaseServer $DatabaseServer `
             -DatabaseInstance $DatabaseInstance `
-            -ManagementServicesPort 7045 `
-            -ClientServicesPort 7046 `
+            -ManagementServicesPort $ManagementServicesPort `
+            -ClientServicesPort $ClientServicesPort `
             -DatabaseName $Databasename          
 
     $ServerInstanceObject = Get-NAVServerInstance4 -ServerInstance $ServerInstance
@@ -40,21 +43,35 @@
             BEGIN
                 CREATE USER [$($ServerInstanceObject.ServiceAccount)] FOR LOGIN [$($ServerInstanceObject.ServiceAccount)]                    
             END"#>
-    $SQLCommand = "CREATE USER [$($ServerInstanceObject.ServiceAccount)] FOR LOGIN [$($ServerInstanceObject.ServiceAccount)]"        
-    Invoke-SQL `
-        -DatabaseServer $ServerInstanceObject.DatabaseServer `
-        -DatabaseInstance $ServerInstanceObject.DatabaseInstance `
-        -DatabaseName $ServerInstanceObject.DatabaseName `
-        -SQLCommand $SQLCommand `
-        -ErrorAction SilentlyContinue
-    Invoke-SQL `
-        -DatabaseServer $ServerInstanceObject.DatabaseServer `
-        -DatabaseInstance $ServerInstanceObject.DatabaseInstance `
-        -DatabaseName $ServerInstanceObject.DatabaseName `
-        -SQLCommand "ALTER ROLE [db_owner] ADD MEMBER [$($ServerInstanceObject.ServiceAccount)]" `
-        -ErrorAction SilentlyContinue
+    try{
+        $SQLCommand = "CREATE USER [$($ServerInstanceObject.ServiceAccount)] FOR LOGIN [$($ServerInstanceObject.ServiceAccount)]"        
+        Invoke-SQL `
+            -DatabaseServer $ServerInstanceObject.DatabaseServer `
+            -DatabaseInstance $ServerInstanceObject.DatabaseInstance `
+            -DatabaseName $ServerInstanceObject.DatabaseName `
+            -SQLCommand $SQLCommand `
+            -ErrorAction SilentlyContinue
+    }
+    catch{
+        Write-Warning "Error when creating user $($ServerInstanceObject.ServiceAccount): $($Error[0])"
+    }
+    try{
+       Invoke-SQL `
+            -DatabaseServer $ServerInstanceObject.DatabaseServer `
+            -DatabaseInstance $ServerInstanceObject.DatabaseInstance `
+            -DatabaseName $ServerInstanceObject.DatabaseName `
+            -SQLCommand "ALTER ROLE [db_owner] ADD MEMBER [$($ServerInstanceObject.ServiceAccount)]" `
+            -ErrorAction SilentlyContinue
+    }
+    catch{
+        Write-Warning "Error when altering user $($ServerInstanceObject.ServiceAccount): $($Error[0])"
+    }
          
     $null = Set-NAVServerInstance -Start -ServerInstance $ServerInstance
+    if($CreateWebServerInstance){
+        Write-Host -ForegroundColor Green -Object "Create WebServerInstance '$ServerInstance'"
+        New-NAVWebServerInstance `            -ClientServicesPort $ClientServicesPort `            -Server localhost `            -ServerInstance $ServerInstance `            -WebServerInstance $ServerInstance `            -Force
+    }
     if($LicenseFile){  
         Write-Host -ForegroundColor Green -Object 'Importing license..'
         $null = $ServerInstanceObject | Import-NAVServerLicense -LicenseFile $LicenseFile -Database NavDatabase -Force -WarningAction SilentlyContinue

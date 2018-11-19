@@ -16,15 +16,42 @@ function Export-NAVApplicationObject2 {
         [Parameter(Mandatory=$false)]
         [String] $LogPath,
         [Parameter(Mandatory=$false)]
-        [String] $Filter
+        [String] $Filter,
+        [Parameter(Mandatory=$false)]
+        [switch] $ExportToNewSyntax,
+        [Parameter(Mandatory=$false)]
+        [switch] $ExportTxtSkipUnlicensed
 
     )
     
     process{
         $ServerInstanceObject = Get-NAVServerInstanceDetails -ServerInstance $ServerInstance
 
-        Export-NAVApplicationObject `
-            -DatabaseName $ServerInstanceObject.DatabaseName `            -DatabaseServer $ServerInstanceObject.DatabaseServer `            -Path $Path `            -LogPath $LogPath `            -Filter $Filter   
+        $DatabaseServer =  $ServerInstanceObject.DatabaseServer
+        if (!([string]::IsNullOrEmpty($ServerInstanceObject.DatabaseInstance))){
+            $DatabaseServer += "\$($ServerInstanceObject.DatabaseInstance)"
+        }
+
+        if (!$ExportToNewSyntax){
+            Export-NAVApplicationObject `
+                -DatabaseName $ServerInstanceObject.DatabaseName `
+                -DatabaseServer $DatabaseServer `
+                -Path $Path `
+                -LogPath $LogPath `
+                -Filter $Filter `
+                -ExportTxtSkipUnlicensed:$ExportTxtSkipUnlicensed
+        
+        } else {
+            Export-NAVApplicationObject `
+                        -DatabaseName $ServerInstanceObject.DatabaseName `
+                        -DatabaseServer $DatabaseServer `
+                        -Path $Path `
+                        -LogPath $LogPath `
+                        -Filter $Filter `
+                        -ExportToNewSyntax:$ExportToNewSyntax `
+                        -ExportTxtSkipUnlicensed:$ExportTxtSkipUnlicensed        
+        }
+
         
     }
 }

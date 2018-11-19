@@ -1,10 +1,10 @@
-$CurrentProduct = 'Base'
-$objectfile     = 'C:\_Workingfolder\Release_iFactoBase\iFactoBaseDEV_updated.txt'
-$ProductVersion = 'IB2.0'
+$CurrentProduct = 'Distri'
+$objectfile     = "C:\_Scriptfolder\ReleaseDistri101\DEVModifiedObjects.txt"
+$ProductVersion = 'I10.1'
 $ModifiedOnly   = $true
 
 switch ($CurrentProduct)
-{
+{ 
     'Food' {    
         $VersionPrefix  = 'NAVW1','NAVBE','I7','I8','IB','SI','IF' 
     }

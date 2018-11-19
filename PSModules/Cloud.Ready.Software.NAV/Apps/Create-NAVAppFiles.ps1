@@ -1,7 +1,7 @@
 ﻿function Create-NAVAppFiles
 {    <#
     .Synopsis
-       Create delta's, specifically meant to do NAVApps, which means: including permissionsets
+       Create delta's, specifically meant to do NAVApps, which means: including permissionsets and Web Services
     .DESCRIPTION
        
     .NOTES
@@ -15,7 +15,9 @@
         [string] $OriginalServerInstance,
         [string] $ModifiedServerInstance,
         [string] $BuildPath,
-        [String] $PermissionSetId='')
+        [String] $PermissionSetId='',
+        [String] $WebServicePrefix='',
+        [String[]] $IncludeFilesInNavApp)
 
     $BuildPath = Join-Path -Path $BuildPath -ChildPath 'CreateNAVAppFiles'
 
@@ -76,12 +78,48 @@
     #Create Permission Sets
     if(!([String]::Isnullorempty($PermissionSetId))){
         Write-Host -Foregroundcolor Green "Exporting PermissionSet $PermissionSetId from $ModifiedServerInstance ..."
-        try { 
-            Export-NAVAppPermissionSet -ServerInstance $ModifiedServerInstance -PermissionSetId $PermissionSetId -Path (join-path $AppFilesFolder "$PermissionSetId.xml") -ErrorAction SilentlyContinue
+        #try { 
+            $PermissionSetExists = Get-NAVServerPermissionSet -ServerInstance $ModifiedServerInstance | where PermissionSetID -eq $PermissionSetId
+            if ($PermissionSetExists){
+                Export-NAVAppPermissionSet `                    -ServerInstance $ModifiedServerInstance `                    -PermissionSetId $PermissionSetID `                    -Path (join-path $AppFilesFolder "$PermissionSetID.xml") `                    -ErrorAction SilentlyContinue
+            } else {
+                Get-NAVServerPermissionSet -ServerInstance $ModifiedServerInstance | 
+                Where PermissionSetID -iLike "$PermissionSetID*" |                    foreach {                        Export-NAVAppPermissionSet `                            -ServerInstance $ModifiedServerInstance `                            -PermissionSetId $_.PermissionSetID `                            -Path (join-path $AppFilesFolder "$($_.PermissionSetID).xml")                     }                    
+            }
+            
+        #}
+        #Catch { 
+        #    Write-Warning -Message 'Something went wrong with exporting Permission sets!'}
+     }   
+
+    #Create WebServiceXML
+    if(!([String]::Isnullorempty($WebServicePrefix))){
+        Write-Host -Foregroundcolor Green "Exporting Tenant Web Services with prefix '$WebServicePrefix' from $ModifiedServerInstance ..."
+
+        Invoke-NAVSQL -ServerInstance $ModifiedServerInstance -SQLCommand "Select * From [Tenant Web Service] where [Service Name] like '%$WebServicePrefix%'" | 
+            select 'Object Type', 'Service Name', 'Object ID' |
+                foreach {
+                    switch ($_.'Object Type')
+                    {
+                        '8' {$ObjectType = 'Page'}
+                        '5' {$ObjectType = 'CodeUnit'}
+                        Default {$ObjectType = $null}        
+                    }
+                    if (!([String]::IsNullOrEmpty($ObjectType))){
+                        Export-NAVAppTenantWebService `
+                            -ServiceName $_.'Service Name' `                            -ObjectType $ObjectType `                            -ObjectId $_.'Object ID' `                            -Path (join-path $AppFilesFolder "$($_.'Service Name').xml") `                            -ServerInstance $ModifiedServerInstance
+                    }
+                }
+    }
+
+    #IncludeFiles
+    if(!([String]::Isnullorempty($IncludeFilesInNavApp))){
+        foreach ($IncludeFileInNavApp in $IncludeFilesInNavApp){
+            Write-Host -ForegroundColor Gray "Copying $([io.path]::GetFileName($IncludeFileInNavApp)) to $AppFilesFolder"
+            Copy-Item -Path $IncludeFileInNavApp -Destination (join-path $AppFilesFolder ([io.path]::GetFileName($IncludeFileInNavApp)))
         }
-        Catch { 
-            Write-Warning -Message "Permissionset $PermissionSetId was not found!" }
     }   
+
 
     return $AppFilesFolder
 }

@@ -47,6 +47,11 @@ if (!$MergeResult) {$MergeResult = Import-Clixml -Path "$WorkingFolder\MergeResu
 
 $FilteredMergeResultFolder = Copy-NAVChangedMergedResultFiles -MergeResultObjects $MergeResult.MergeResult
 
+
+#break here, just because in the majority of times I don't need to execute any further
+break
+
+
 $FobFile = 
     New-NAVUpgradeFobFromMergedText `
         -TargetServerInstance $TargetServerInstance `
@@ -54,7 +59,8 @@ $FobFile =
         -TextFileFolder $FilteredMergeResultFolder `
         -WorkingFolder $WorkingFolder `
         -ErrorAction Stop `
-        -ResultFobFile $ResultObjectFile
+        -ResultFobFile $ResultObjectFile `
+        -Verbose
 
 
 $UpgradedServerInstance = 
@@ -64,9 +70,9 @@ $UpgradedServerInstance =
         -LicenseFile $NAVLicense `
         -UpgradeToolkit $UpgradeCodeunitsFullPath `
         -ResultObjectFile $FobFile `
-        -DeletedObjects $DeletedObjects `
-        -SyncMode ForceSync `
-        -IfResultDBExists Use
+        -SyncMode Sync `
+        -IfResultDBExists Overwrite `
+        -Name "$($UpgradeName)_Result"
   
 $StoppedDateTime = Get-Date
   

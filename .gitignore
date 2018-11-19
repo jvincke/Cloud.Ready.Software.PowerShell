@@ -53,3 +53,7 @@ Temporary Items
 *.dll
 *.exe
 
+Pwd_*
+password.*
+*Secret*
+*.zip

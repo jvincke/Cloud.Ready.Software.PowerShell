@@ -12,12 +12,14 @@
         [String] $WorkingFolder,
         [String] $LicenseFile,
         [String] $UpgradeToolkit,
-        [Object[]] $DeletedObjects,
-        [ValidateSet('ForceSync','Sync')]
+        #[Object[]] $DeletedObjects,
+        [ValidateSet('CheckOnly','ForceSync','Sync')]
         [String] $SyncMode='Sync',
         [ValidateSet('Overwrite','Use')]
         [String] $IfResultDBExists='Overwrite',
-        [Switch] $CreateBackup
+        [Switch] $CreateBackup,
+        [ValidateSet('Parallel', 'Serial')]
+        [String] $FunctionExecutionMode = 'Parallel'
     )
     
     #Creating Workspace
@@ -57,15 +59,19 @@
         }
     }
     
-    #Unlock objects
-    write-host 'Unlock all objects' -ForegroundColor Green
-    Unlock-NAVApplicationObjects -ServerInstance $SandboxServerInstance
-   
     #Make Admin user DB-Owner
     $CurrentUser = [environment]::UserDomainName + '\' + [Environment]::UserName
     Invoke-SQL -DatabaseName $SandboxServerInstance -SQLCommand "CREATE USER [$CurrentUser] FOR LOGIN [$CurrentUser]" -ErrorAction SilentlyContinue
     Invoke-SQL -DatabaseName $SandboxServerInstance -SQLCommand "ALTER ROLE [db_owner] ADD MEMBER [$CurrentUser]" -ErrorAction SilentlyContinue
 
+    #Import NAV LIcense on server-level 
+    Write-Host "Import NAV license in $SandboxServerInstance" -ForegroundColor Green   
+    Import-NAVServerLicenseToDatabase -LicenseFile $LicenseFile -ServerInstance $SandboxServerInstance -Scope Database
+    
+    #Unlock objects
+    write-host 'Unlock all objects' -ForegroundColor Green
+    Unlock-NAVApplicationObjects -ServerInstance $SandboxServerInstance
+   
     #Drop ReVision Triggers
     Invoke-SQL -DatabaseName $SandboxServerInstance -SQLCommand 'DISABLE TRIGGER [dbo].[REVISION_UPDATE] ON [dbo].[Object]' -ErrorAction silentlyContinue
     Invoke-SQL -DatabaseName $SandboxServerInstance -SQLCommand 'DISABLE TRIGGER [dbo].[REVISION_INSERT] ON [dbo].[Object]' -ErrorAction silentlyContinue
@@ -74,25 +80,26 @@
     #Convert DB
     Write-Host 'Converting Database' -ForegroundColor Green
     [System.Data.SqlClient.SqlConnection]::ClearAllPools()
-    Invoke-NAVDatabaseConversion -DatabaseName $SandboxServerInstance -LogPath $LogDataconversion -ErrorVariable $ErrorDatabaseConversion -ErrorAction SilentlyContinue
-    if ($ErrorDatabaseConversion) {
-        if (!($ErrorDatabaseConversion -match 'You must choose an instance')) {
-            Write-Error $ErrorDatabaseConversion
-            break
-        }
-    }
+    Invoke-NAVDatabaseConversion -DatabaseName $SandboxServerInstance -LogPath $LogDataconversion -ErrorAction stop    
     Invoke-SQL -DatabaseName $SandboxServerInstance -SQLCommand "ALTER DATABASE [$SandboxServerInstance] SET  MULTI_USER WITH NO_WAIT"
     
     #Start NST
     Write-Host "Start NST $SandboxServerInstance" -ForegroundColor Green
     Set-NAVServerInstance -Start -ServerInstance $SandboxServerInstance
     
+    #Compile System Tables
+    Sync-NAVTenant -ServerInstance $SandboxServerInstance -Mode Sync -Force 
+    Compile-NAVApplicationObject2 -ServerInstance $SandboxServerInstance -SynchronizeSchemaChanges Yes -Filter 'Id=2000000000..' -LogPath $LogCompileObjects -Recompile
+
+    #Add my user to the environment
+    Write-Host 'Add current user to environment' -ForegroundColor Green
+    Add-NAVEnvironmentCurrentUser -ServerInstance $SandboxServerInstance -ErrorAction Stop
+
     #Import NAV LIcense
     Write-Host "Import NAV license in $SandboxServerInstance" -ForegroundColor Green
     Get-NAVServerInstance -ServerInstance $SandboxServerInstance | Import-NAVServerLicense -LicenseFile $LicenseFile -Database NavDatabase -WarningAction SilentlyContinue
-    Set-NAVServerInstance -Restart -ServerInstance $SandboxServerInstance
+    #Get-NAVServerInstance -Restart -ServerInstance $SandboxServerInstance
     
-      
     #Delete All except tables
     Write-Host 'Deleting all objects except tables' -ForegroundColor Green
     Delete-NAVApplicationObject `
@@ -102,23 +109,24 @@
         -NavServerName ([net.dns]::GetHostName()) `
         -NavServerInstance $SandboxServerInstance `
         -filter 'Type=<>Table' `
-        -Confirm:$false    
-
-    #Import Upgrade Toolkit
-    if ($UpgradeToolkit){
-        Write-Host 'Import Upgrade Toolkit' -ForegroundColor Green
-        $UpgradeToolkitFile = get-item $UpgradeToolkit -ErrorAction Stop
-        Import-NAVApplicationObject `
-            -DatabaseName $SandboxServerInstance `
-            -Path $UpgradeToolkit `
-            -LogPath $LogImportObjects `
-            -NavServerName ([net.dns]::GetHostName()) `
-            -NavServerInstance $SandboxServerInstance `
-            -confirm:$false 
-    }
+        -Confirm:$false  
     
+
+    #Delete Tables without synch
+    Write-Host 'Deleting tables without synch' -ForegroundColor Green
+    Delete-NAVApplicationObject `
+        -DatabaseName $SandboxServerInstance `
+        -LogPath $LogDeleteObjects `
+        -SynchronizeSchemaChanges No `
+        -NavServerName ([net.dns]::GetHostName()) `
+        -NavServerInstance $SandboxServerInstance `
+        -Confirm:$false `
+        -Filter 'Id=<2000000000'   
+
+   
     #Delete tables
-    Write-Host 'Deleting these Tables:' -ForegroundColor Green
+    <#
+    Write-Host 'Deleting Tables if necessary' -ForegroundColor Green
     $DeletedObjects | where ObjectType -eq 'Table' | foreach {
         Write-Host "  Type=$($_.ObjectType);Id=$($_.Id)" -ForegroundColor Gray
         Delete-NAVApplicationObject `
@@ -130,21 +138,35 @@
             -filter "Type=$($_.ObjectType);Id=$($_.Id)" `
             -Confirm:$false
     }
-    
+    #>
     
     #Import Fob
     Write-Host "Import $ResultObjectFile" -ForegroundColor Green
     $ResultObjectFile = get-item $ResultObjectFile -ErrorAction Stop
     Import-NAVApplicationObject `
-    -DatabaseName $SandboxServerInstance `
-    -Path $ResultObjectFile `
-    -LogPath $LogImportObjects `
-    -SynchronizeSchemaChanges No `
-    -ImportAction Overwrite `
-    -NavServerName ([net.dns]::GetHostName()) `
-    -NavServerInstance $SandboxServerInstance `
-    -confirm:$false 
+        -DatabaseName $SandboxServerInstance `
+        -Path $ResultObjectFile `
+        -LogPath $LogImportObjects `
+        -SynchronizeSchemaChanges No `
+        -ImportAction Overwrite `
+        -NavServerName ([net.dns]::GetHostName()) `
+        -NavServerInstance $SandboxServerInstance `
+        -confirm:$false 
     
+    #Import Upgrade Toolkit
+    if ($UpgradeToolkit){
+        Write-Host 'Import Upgrade Toolkit' -ForegroundColor Green
+        $UpgradeToolkitFile = get-item $UpgradeToolkit -ErrorAction Stop
+        Import-NAVApplicationObject `
+            -DatabaseName $SandboxServerInstance `
+            -Path $UpgradeToolkit `
+            -LogPath $LogImportObjects `
+            -NavServerName ([net.dns]::GetHostName()) `
+            -NavServerInstance $SandboxServerInstance `
+            -confirm:$false `
+            -ImportAction Overwrite
+    }
+
     #Sync
     Write-Host 'Performing Sync-NAVTenant' -ForegroundColor Green
     Sync-NAVTenant `
@@ -156,20 +178,11 @@
 
     #Start Dataupgrade
     if ($UpgradeToolkit){
+
         Write-Host 'Starting Data Upgrade' -ForegroundColor Green
-        Start-NAVDataUpgrade -ServerInstance $SandboxServerInstance -SkipCompanyInitialization -ContinueOnError -Force
+        Start-NAVDataUpgrade -ServerInstance $SandboxServerInstance -SkipCompanyInitialization -ContinueOnError -Force -FunctionExecutionMode $FunctionExecutionMode 
     
-        $Stop = $false
-        while (!$Stop){
-            $NAVDataUpgradeStatus = Get-NAVDataUpgrade -ServerInstance $SandboxServerInstance 
-            Write-Host "$($NAVDataUpgradeStatus.State) -- $($NAVDataUpgradeStatus.Progress)" -ForeGroundColor Gray
-            if ($NAVDataUpgradeStatus.State -ne 'InProgress') {
-                $Stop = $true
-            }
-            Start-Sleep 2
-        }
-    
-        write-host "Data upgrade status: $($NAVDataUpgradeStatus.State)" -ForegroundColor Green
+        Get-NAVDataUpgradeContinuous -ServerInstance $SandboxServerInstance
     }
 
     #Start RTC

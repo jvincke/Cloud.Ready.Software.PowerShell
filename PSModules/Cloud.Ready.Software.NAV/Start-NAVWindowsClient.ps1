@@ -2,18 +2,23 @@
 {
     [cmdletbinding()]
     param(
+        [Parameter(Mandatory=$true)]
+        [String]$ServerInstance, 
         [string]$ServerName=([net.dns]::gethostname()), 
         [int]$Port=7046, 
-        [String]$ServerInstance, 
         [String]$Companyname, 
         [string]$tenant='default'
         )
 
-    if ([string]::IsNullOrEmpty($Companyname)) {       $Companyname = (Get-NAVCompany -ServerInstance $ServerInstance -Tenant $tenant| select -First 1).CompanyName
+    $ServerinstanceDetails = Get-NAVServerInstanceDetails -ServerInstance $ServerInstance -ErrorAction SilentlyContinue
+    if ($ServerinstanceDetails){
+        $Port = $ServerinstanceDetails.ClientServicesPort    
+        if ([string]::IsNullOrEmpty($Companyname)) {            $Companyname = (Get-NAVCompany -ServerInstance $ServerInstance -Tenant $tenant| select -First 1).CompanyName
+        }
     }
-
-    $ConnectionString = "DynamicsNAV://$($Servername):$($Port)/$($ServerInstance)/$($Companyname)/?tenant=$($tenant)"
-    Write-host -ForegroundColor green -object "Starting $ConnectionString ..."
-    Start-Process $ConnectionString
+    $WinClient = (Join-path (Get-Item $NavIde).Directory 'Microsoft.Dynamics.Nav.Client.exe')
+    $ConnectionString = """DynamicsNAV://$($Servername):$($Port)/$($ServerInstance)/$($Companyname)/?tenant=$($tenant)"""
+    Write-host -ForegroundColor green -object "Starting $WinClient $ConnectionString ..."
+    Start-Process -FilePath $WinClient -ArgumentList $ConnectionString
 }
 
